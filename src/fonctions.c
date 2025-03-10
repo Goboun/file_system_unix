@@ -77,3 +77,14 @@ void list_files(file_entry *dir) {
         dir = dir->next;
     }
 }
+
+//Afficher l'aide dans l'invite de commandes
+void display_help(){
+    printf("Commandes à disposition :\n");
+    printf(" ls             - Lister les fichiers et dossiers\n");
+    printf(" mkdir <nom>    - Créer un répertoire\n");
+    printf(" touch <nom>    - Créer un fichier\n");
+    printf(" rm <nom>       - Supprimer un fichier ou un répertoire\n");
+    printf(" help           - Afficher l'aide aux commandes\n");
+    printf(" exit           - Quitter l'invite de commandes\n");
+}
