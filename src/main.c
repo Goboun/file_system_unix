@@ -20,6 +20,8 @@
  */
 typedef struct FileEntry {
 	int inode;				   /**< Numéro d'inode */
+	int is_symbol;			   /**< 1 si lien symbolique, 0 sinon */
+	struct FileEntry *origin;   /**< Fichier/dossier d'origine pour les liens symboliques */
 	char *name;                /**< Nom de l'entree */
 	int is_directory;          /**< 1 si repertoire, 0 si fichier */
 	int size;                  /**< Taille (pour fichiers) */
@@ -385,6 +387,9 @@ void fs_mkdir(const char *dirname) {
         return;
     }
     FileEntry *dir = malloc(sizeof(FileEntry));
+    dir->inode = next_inode++;
+    dir->is_symbol = 0;
+    dir->origin = NULL;
     dir->name = strdup(dirname);
     dir->is_directory = 1;
     dir->size = 0;
@@ -453,6 +458,15 @@ void fs_cd(const char *dirname) {
         return;
     }
     fs.current = dir;
+    if(dir->is_symbol){
+		if (dir->origin == NULL){
+			printf("Le répertoire d'origine n'existe plus.\n");
+			return;
+		}
+		else {
+			fs.current = dir->origin;
+		}
+	}
     char *chemin = build_path(fs.current);
     printf("Repertoire courant change vers '%s'.\n", chemin);
     free(chemin);
@@ -492,7 +506,54 @@ void fs_ls(const char *arg) {
     }
     FileEntry *child = cible->child;
     while (child) {
-        printf("%s%s  ", child->name, child->is_directory ? "/" : "");
+		if (child->is_symbol){
+			printf("\033[1;36m%s\033[0m  ", child->name);
+		}
+		else if (child->is_directory){
+			printf("\033[1;34m%s\033[0m  ", child->name);
+		}
+		else{
+			printf("\033[1;32m%s\033[0m  ", child->name);
+		}
+        child = child->next;
+    }
+    printf("\n");
+}
+
+/**
+ * @brief Liste le contenu d'un repertoire avec les inodes.
+ *
+ * Si aucun argument n'est fourni, le repertoire courant est liste.
+ * Sinon, le chemin donne est resolu et son contenu est affiche.
+ *
+ * @param arg Chemin optionnel du repertoire a lister.
+ */
+void fs_lsi(const char *arg) {
+    FileEntry *cible = NULL;
+    if (arg == NULL) {
+        cible = fs.current;
+    } else {
+        cible = resolve_path(arg, NULL);
+        if (!cible) {
+            printf("Repertoire introuvable : %s\n", arg);
+            return;
+        }
+        if (!cible->is_directory) {
+            printf("%d %s\n", cible->inode, cible->name);
+            return;
+        }
+    }
+    FileEntry *child = cible->child;
+    while (child) {
+		if (child->is_symbol){
+			printf("%d \033[1;36m%s\033[0m  ", child->inode, child->name);
+		}
+		else if (child->is_directory){
+			printf("%d \033[1;34m%s\033[0m  ", child->inode, child->name);
+		}
+		else{
+			printf("%d \033[1;32m%s\033[0m  ", child->inode, child->name);
+		}
         child = child->next;
     }
     printf("\n");
@@ -509,6 +570,14 @@ void fs_cat(const char *filename) {
         printf("Fichier introuvable ou c'est un repertoire.\n");
         return;
     }
+    if(file->is_symbol = 1 && file->origin != NULL){
+		printf("%s\n", file->origin->content);
+		return;
+	}
+	else {
+		printf("Le fichier original n'existe plus.\n");
+		return;
+	}
     if (file->content)
         printf("%s\n", file->content);
     else
@@ -527,6 +596,9 @@ void fs_create(const char *filename, int size) {
         return;
     }
     FileEntry *file = malloc(sizeof(FileEntry));
+    file->inode = next_inode++;
+    file->is_symbol = 0;
+    file->origin = NULL;
     file->name = strdup(filename);
     file->is_directory = 0;
     file->size = size;
@@ -578,6 +650,9 @@ void fs_link(const char *src, const char *dest) {
     }
     file->link_count++;
     FileEntry *nouveau_lien = malloc(sizeof(FileEntry));
+    nouveau_lien->inode = file->inode;
+    nouveau_lien->is_symbol = 0;
+    nouveau_lien->origin = NULL;
     nouveau_lien->name = strdup(dest);
     nouveau_lien->is_directory = 0;
     nouveau_lien->size = file->size;
@@ -588,6 +663,37 @@ void fs_link(const char *src, const char *dest) {
     nouveau_lien->next = NULL;
     add_entry(fs.current, nouveau_lien);
     printf("Lien physique '%s' cree pour '%s'.\n", dest, src);
+}
+
+/**
+ * @brief Cree un lien symbolique pour un fichier ou un dossier.
+ *
+ * @param src Chemin source.
+ * @param dest Nom du lien cree.
+ */
+void fs_ln(const char *src, const char *dest) {
+    FileEntry *file = resolve_path(src, NULL);
+    if (!file) {
+        printf("Source introuvable.\n");
+        return;
+    }
+    if (find_entry(fs.current, dest)) {
+        printf("Le nom de destination existe deja.\n");
+        return;
+    }
+    FileEntry *nouveau_lien = malloc(sizeof(FileEntry));
+    nouveau_lien->inode = next_inode++;
+    nouveau_lien->is_symbol = 1;
+    nouveau_lien->origin = file;
+    nouveau_lien->name = strdup(dest);
+    nouveau_lien->is_directory = file->is_directory;
+    nouveau_lien->size = file->size;
+    nouveau_lien->content = NULL;
+    nouveau_lien->perms = file->perms;
+    nouveau_lien->child = NULL;
+    nouveau_lien->next = NULL;
+    add_entry(fs.current, nouveau_lien);
+    printf("Lien symbolique '%s' cree pour '%s'.\n", dest, src);
 }
  
 /**
@@ -696,7 +802,7 @@ int main() {
     printf("Systeme de fichiers simple. Tapez 'help' pour la liste des commandes.\n");
     while (1) {
         char *chemin = build_path(fs.current);
-        printf("hebcfs:%s> ", chemin);
+        printf("\033[1;32mhebcfs\033[0m:\033[1;34m%s\033[0m> ", chemin);
         free(chemin);
 
         if (!fgets(commande, sizeof(commande), stdin))
@@ -792,6 +898,10 @@ int main() {
             char *arg = strtok(NULL, " ");
             fs_ls(arg);
         }
+        else if (strcmp(token, "lsi") == 0) {
+            char *arg = strtok(NULL, " ");
+            fs_lsi(arg);
+        }
         else if (strcmp(token, "cat") == 0) {
             char *fichier = strtok(NULL, " ");
             if (!fichier) {
@@ -828,6 +938,15 @@ int main() {
             }
             fs_link(src, dest);
         }
+        else if (strcmp(token, "ln") == 0) {
+            char *src = strtok(NULL, " ");
+            char *dest = strtok(NULL, " ");
+            if (!src || !dest) {
+                printf("Usage : ln <source> <destination>\n");
+                continue;
+            }
+            fs_ln(src, dest);
+        }
         else if (strcmp(token, "unlink") == 0) {
             char *fichier = strtok(NULL, " ");
             if (!fichier) {
@@ -860,10 +979,12 @@ int main() {
             printf("  cd <repertoire>           : Change le repertoire courant (cd .. pour remonter)\n");
             printf("  pwd                       : Affiche le chemin complet courant\n");
             printf("  ls [<chemin>]             : Liste le contenu d'un repertoire\n");
+            printf("  lsi [<chemin>]            : Liste le contenu d'un repertoire avec les inodes\n");
             printf("  cat <fichier>             : Affiche le contenu d'un fichier\n");
-            printf("  create <fichier> <taille>   : Cree un fichier de taille donnee\n");
+            printf("  create <fichier> <taille> : Cree un fichier de taille donnee\n");
             printf("  chmod <perm> <chemin>     : Modifie les permissions (ex : 0, 4, 6, 7)\n");
             printf("  link <src> <dest>         : Cree un lien physique\n");
+            printf("  ln <src> <dest>           : Cree un lien symbolique\n");
             printf("  unlink <fichier>          : Supprime un lien\n");
             printf("  rm <chemin>               : Supprime un fichier ou repertoire vide\n");
             printf("  fsck                      : Affiche des statistiques du systeme\n");
