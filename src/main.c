@@ -20,8 +20,9 @@
  */
 typedef struct FileEntry {
 	int inode;				   /**< Numéro d'inode */
-	int is_symbol;			   /**< 1 si lien symbolique, 0 sinon */
-	struct FileEntry *origin;   /**< Fichier/dossier d'origine pour les liens symboliques */
+	int is_symbol;			   /**< 1 si lien symbolique, 2 si mort, 0 sinon */
+	struct FileEntry *origin;  /**< Fichier/dossier d'origine pour les liens symboliques */
+	char* nom_origin;		   /**< Nom du fichier/dossier d'origine pour l'affichage de l'arbre */
 	char *name;                /**< Nom de l'entree */
 	int is_directory;          /**< 1 si repertoire, 0 si fichier */
 	int size;                  /**< Taille (pour fichiers) */
@@ -442,6 +443,7 @@ void fs_rmdir(const char *dirname) {
  * @param dirname Nom du repertoire.
  */
 void fs_cd(const char *dirname) {
+	FileEntry* copie = fs.current;
     if (strcmp(dirname, "..") == 0) {
         if (fs.current->parent)
             fs.current = fs.current->parent;
@@ -457,15 +459,21 @@ void fs_cd(const char *dirname) {
         printf("Repertoire introuvable.\n");
         return;
     }
-    fs.current = dir;
+    
     if(dir->is_symbol){
-		if (dir->origin == NULL){
+		fs.current = dir->origin;
+		if (resolve_path(dir->origin->name, NULL) == NULL){
 			printf("Le répertoire d'origine n'existe plus.\n");
+			dir->is_symbol = 2;
+			fs.current = copie;
 			return;
 		}
 		else {
 			fs.current = dir->origin;
 		}
+	}
+	else{
+		fs.current = dir;
 	}
     char *chemin = build_path(fs.current);
     printf("Repertoire courant change vers '%s'.\n", chemin);
@@ -557,6 +565,144 @@ void fs_lsi(const char *arg) {
         child = child->next;
     }
     printf("\n");
+}
+
+/**
+ * @brief Affiche l'arborescence d'un dossier.
+ *
+ * Si aucun argument n'est fourni, alors arborescence du repertoire courant.
+ * Sinon, le chemin donne est resolu et son arborescence est affiche.
+ *
+ * @param arg Chemin optionnel du repertoire à afficher.
+ */
+void fs_tree(const char *arg, int indentation) {
+	//Définir répertoire
+    FileEntry *cible = NULL;
+    if (arg == NULL) {
+        cible = fs.current;
+    } else {
+        cible = resolve_path(arg, NULL);
+        if (!cible) {
+            printf("Repertoire introuvable : %s\n", arg);
+            return;
+        }
+        if (!cible->is_directory) {
+            printf("%s\n", cible->name);
+            return;
+        }
+    }
+    //Indentation
+    int i;
+    for(i = 0; i<indentation; i++){
+		printf("    ");
+	}
+	//Afficher nom du dossier
+	printf("\033[1;34m%s\033[0m\n", cible->name);
+
+    //Afficher nom des sous éléments
+    FileEntry *child = cible->child;
+    while (child) {
+		//Lien symbolique (pas de récursion pour les dossiers symboliques)
+		if(child->is_symbol){
+			//Indentation + 1
+			for(i = 0; i<=indentation; i++){
+				printf("    ");
+			}
+			printf("\033[1;36m%s -> %s\033[0m\n", child->name, child->nom_origin);
+		}
+		else{
+			//Dossier = appel récursif
+			if(child->is_directory){
+				//MAJ du dossier courant, sinon ça bug !!!
+				fs.current = cible;
+				fs_tree(child->name, indentation+1);
+			}
+			//Fichier
+			else{
+				//Indentation + 1
+				for(i = 0; i<=indentation; i++){
+					printf("    ");
+				}
+				printf("\033[1;32m%s\033[0m\n", child->name);
+			}
+		}
+        child = child->next;
+    }
+    //Dossier courant remis par défaut
+    fs.current = cible;
+}
+
+/**
+ * @brief Affiche l'arborescence d'un dossier avec les inodes.
+ *
+ * Si aucun argument n'est fourni, alors arborescence du repertoire courant.
+ * Sinon, le chemin donne est resolu et son arborescence est affiche.
+ *
+ * @param arg Chemin optionnel du repertoire à afficher.
+ */
+void fs_treei(const char *arg, int indentation) {
+	//Définir répertoire
+    FileEntry *cible = NULL;
+    if (arg == NULL) {
+        cible = fs.current;
+    } else {
+        cible = resolve_path(arg, NULL);
+        if (!cible) {
+            printf("Repertoire introuvable : %s\n", arg);
+            return;
+        }
+        if (!cible->is_directory) {
+            printf("%d %s\n", cible->inode, cible->name);
+            return;
+        }
+    }
+    
+    //Indentation
+    int i;
+    for(i = 0; i<indentation; i++){
+		printf("    ");
+	}
+	//Afficher nom du dossier
+	printf("%d \033[1;34m%s\033[0m\n", cible->inode, cible->name);
+
+    //Afficher nom des sous éléments
+    FileEntry *child = cible->child;
+    while (child) {
+        //Lien symbolique (pas de récursion pour les dossiers symboliques)
+		if(child->is_symbol == 1){
+			//Indentation + 1
+			for(i = 0; i<=indentation; i++){
+				printf("    ");
+			}
+			printf("%d \033[1;36m%s -> %s\033[0m\n", child->inode, child->name, child->nom_origin);
+		}
+		else if(child->is_symbol == 2){
+			//Indentation + 1
+			for(i = 0; i<=indentation; i++){
+				printf("    ");
+			}
+			printf("%d \033[1;31m%s -> %s\033[0m\n", child->inode, child->name, child->nom_origin);
+		}
+		else{
+			//Dossier = appel récursif
+			if(child->is_directory){
+				//MAJ du dossier courant, sinon ça bug !!!
+				fs.current = cible;
+				fs_treei(child->name, indentation+1);
+			}
+			//Fichier
+			else{
+				//Indentation + 1
+				for(i = 0; i<=indentation; i++){
+					printf("    ");
+				}
+				printf("%d \033[1;32m%s\033[0m\n", child->inode, child->name);
+			}
+		}
+		child = child->next;
+    }
+    //Dossier courant remis par défaut
+    fs.current = cible;
 }
  
 /**
@@ -685,6 +831,7 @@ void fs_ln(const char *src, const char *dest) {
     nouveau_lien->inode = next_inode++;
     nouveau_lien->is_symbol = 1;
     nouveau_lien->origin = file;
+    nouveau_lien->nom_origin = build_path(nouveau_lien->origin);
     nouveau_lien->name = strdup(dest);
     nouveau_lien->is_directory = file->is_directory;
     nouveau_lien->size = file->size;
@@ -902,6 +1049,14 @@ int main() {
             char *arg = strtok(NULL, " ");
             fs_lsi(arg);
         }
+        else if (strcmp(token, "tree") == 0) {
+            char *arg = strtok(NULL, " ");
+            fs_tree(arg, 0);
+        }
+        else if (strcmp(token, "treei") == 0) {
+            char *arg = strtok(NULL, " ");
+            fs_treei(arg, 0);
+        }
         else if (strcmp(token, "cat") == 0) {
             char *fichier = strtok(NULL, " ");
             if (!fichier) {
@@ -980,6 +1135,8 @@ int main() {
             printf("  pwd                       : Affiche le chemin complet courant\n");
             printf("  ls [<chemin>]             : Liste le contenu d'un repertoire\n");
             printf("  lsi [<chemin>]            : Liste le contenu d'un repertoire avec les inodes\n");
+            printf("  tree [<chemin>]           : Affiche l'arborescence d'un repertoire\n");
+            printf("  treei [<chemin>]          : Affiche l'arborescence d'un repertoire avec les inodes\n");
             printf("  cat <fichier>             : Affiche le contenu d'un fichier\n");
             printf("  create <fichier> <taille> : Cree un fichier de taille donnee\n");
             printf("  chmod <perm> <chemin>     : Modifie les permissions (ex : 0, 4, 6, 7)\n");
