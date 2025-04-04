@@ -22,6 +22,7 @@ typedef struct FileEntry {
     int inode;
     int is_symbol;            // 1 si lien symbolique, 0 sinon
     struct FileEntry *origin; // Pointeur vers l'entree d'origine pour les liens symboliques
+    char* nom_origin;
     char *name;
     int is_directory;         // 1 si repertoire, 0 si fichier
     int size;                 // Taille en octets (pour fichiers)
@@ -152,6 +153,144 @@ void print_tree(FileEntry *entry, int level, int show_inodes) {
     }
 }
 
+/**
+ * @brief Affiche l'arborescence d'un dossier.
+ *
+ * Si aucun argument n'est fourni, alors arborescence du repertoire courant.
+ * Sinon, le chemin donne est resolu et son arborescence est affiche.
+ *
+ * @param arg Chemin optionnel du repertoire à afficher.
+ */
+void fs_tree(const char *arg, int indentation) {
+	//Définir répertoire
+    FileEntry *cible = NULL;
+    if (arg == NULL) {
+        cible = fs.current;
+    } else {
+        cible = resolve_path(arg, NULL);
+        if (!cible) {
+            printf("Repertoire introuvable : %s\n", arg);
+            return;
+        }
+        if (!cible->is_directory) {
+            printf("%s\n", cible->name);
+            return;
+        }
+    }
+    //Indentation
+    int i;
+    for(i = 0; i<indentation; i++){
+		printf("    ");
+	}
+	//Afficher nom du dossier
+	printf("\033[1;34m%s\033[0m\n", cible->name);
+
+    //Afficher nom des sous éléments
+    FileEntry *child = cible->child;
+    while (child) {
+		//Lien symbolique (pas de récursion pour les dossiers symboliques)
+		if(child->is_symbol){
+			//Indentation + 1
+			for(i = 0; i<=indentation; i++){
+				printf("    ");
+			}
+			printf("\033[1;36m%s -> %s\033[0m\n", child->name, child->nom_origin);
+		}
+		else{
+			//Dossier = appel récursif
+			if(child->is_directory){
+				//MAJ du dossier courant, sinon ça bug !!!
+				fs.current = cible;
+				fs_tree(child->name, indentation+1);
+			}
+			//Fichier
+			else{
+				//Indentation + 1
+				for(i = 0; i<=indentation; i++){
+					printf("    ");
+				}
+				printf("\033[1;32m%s\033[0m\n", child->name);
+			}
+		}
+        child = child->next;
+    }
+    //Dossier courant remis par défaut
+    fs.current = cible;
+}
+
+/**
+ * @brief Affiche l'arborescence d'un dossier avec les inodes.
+ *
+ * Si aucun argument n'est fourni, alors arborescence du repertoire courant.
+ * Sinon, le chemin donne est resolu et son arborescence est affiche.
+ *
+ * @param arg Chemin optionnel du repertoire à afficher.
+ */
+void fs_tree_i(const char *arg, int indentation) {
+	//Définir répertoire
+    FileEntry *cible = NULL;
+    if (arg == NULL) {
+        cible = fs.current;
+    } else {
+        cible = resolve_path(arg, NULL);
+        if (!cible) {
+            printf("Repertoire introuvable : %s\n", arg);
+            return;
+        }
+        if (!cible->is_directory) {
+            printf("%d %s\n", cible->inode, cible->name);
+            return;
+        }
+    }
+    
+    //Indentation
+    int i;
+    for(i = 0; i<indentation; i++){
+		printf("    ");
+	}
+	//Afficher nom du dossier
+	printf("%d \033[1;34m%s\033[0m\n", cible->inode, cible->name);
+
+    //Afficher nom des sous éléments
+    FileEntry *child = cible->child;
+    while (child) {
+        //Lien symbolique (pas de récursion pour les dossiers symboliques)
+		if(child->is_symbol == 1){
+			//Indentation + 1
+			for(i = 0; i<=indentation; i++){
+				printf("    ");
+			}
+			printf("%d \033[1;36m%s -> %s\033[0m\n", child->inode, child->name, child->nom_origin);
+		}
+		else if(child->is_symbol == 2){
+			//Indentation + 1
+			for(i = 0; i<=indentation; i++){
+				printf("    ");
+			}
+			printf("%d \033[1;31m%s -> %s\033[0m\n", child->inode, child->name, child->nom_origin);
+		}
+		else{
+			//Dossier = appel récursif
+			if(child->is_directory){
+				//MAJ du dossier courant, sinon ça bug !!!
+				fs.current = cible;
+				fs_tree_i(child->name, indentation+1);
+			}
+			//Fichier
+			else{
+				//Indentation + 1
+				for(i = 0; i<=indentation; i++){
+					printf("    ");
+				}
+				printf("%d \033[1;32m%s\033[0m\n", child->inode, child->name);
+			}
+		}
+		child = child->next;
+    }
+    //Dossier courant remis par défaut
+    fs.current = cible;
+}
+
 void get_perms_text(int perms, char *buf, size_t buf_size) {
     buf[0] = '\0';
     int appended = 0;
@@ -205,7 +344,7 @@ void mkfs() {
 int fs_open(const char *filename, int flag) {
     FileEntry *entry = find_entry(fs.current, filename);
     if (!entry) {
-        // Ne cree pas le fichier ici; il doit être créé via fs_create
+        // Ne cree pas le fichier ici; il doit être créé via fs_touch
         printf("Fichier introuvable.\n");
         return -1;
     } else if (entry->is_directory) {
@@ -356,6 +495,7 @@ void fs_rmdir(const char *dirname) {
 }
 
 void fs_cd(const char *dirname) {
+    FileEntry* copie = fs.current;
     if (strcmp(dirname, "..") == 0) {
         if (fs.current->parent)
             fs.current = fs.current->parent;
@@ -371,10 +511,22 @@ void fs_cd(const char *dirname) {
         printf("Repertoire introuvable.\n");
         return;
     }
-    if (dir->is_symbol == 1 && dir->origin != NULL)
-        fs.current = dir->origin;
-    else
-        fs.current = dir;
+    
+    if(dir->is_symbol){
+		fs.current = dir->origin;
+		if (resolve_path(dir->origin->name, NULL) == NULL){
+			printf("Le répertoire d'origine n'existe plus.\n");
+			dir->is_symbol = 2;
+			fs.current = copie;
+			return;
+		}
+		else {
+			fs.current = dir->origin;
+		}
+	}
+	else{
+		fs.current = dir;
+	}
     char *chemin = build_path(fs.current);
     printf("Repertoire courant change vers '%s'.\n", chemin);
     free(chemin);
@@ -403,18 +555,78 @@ void fs_ls(const char *arg) {
     }
     FileEntry *child = cible->child;
     while (child) {
-        if (child->is_symbol)
+        if (child->is_symbol == 1){
             printf("\033[1;36m%s\033[0m  ", child->name);
-        else if (child->is_directory)
+        }
+        else if(child->is_symbol == 2){
+			printf("\033[1;31m%s\033[0m  ", child->name);
+		}
+        else if (child->is_directory){
             printf("\033[1;34m%s\033[0m  ", child->name);
-        else
+		}
+		else{
             printf("\033[1;32m%s\033[0m  ", child->name);
+        }
         child = child->next;
     }
     printf("\n");
 }
 
 void fs_ls_l(const char *arg) {
+    FileEntry *cible = NULL;
+    if (arg == NULL)
+        cible = fs.current;
+    else {
+        cible = resolve_path(arg, NULL);
+        if (!cible) {
+            printf("Repertoire introuvable : %s\n", arg);
+            return;
+        }
+        if (!cible->is_directory) {
+            char perms_text[50];
+            get_perms_text(cible->perms, perms_text, sizeof(perms_text));
+            printf("%c%c%c %-5d %-20s %-5d %s%s\n",
+                   (cible->perms & 4) ? 'r' : '-',
+                   (cible->perms & 2) ? 'w' : '-',
+                   (cible->perms & 1) ? 'x' : '-',
+                   cible->inode, perms_text, cible->size,
+                   cible->name, cible->is_directory ? "/" : "");
+            return;
+        }
+    }
+    FileEntry *child = cible->child;
+    while (child) {
+		char perms_text[50];
+		get_perms_text(child->perms, perms_text, sizeof(perms_text));
+        //Lien symbolique mort
+        if(child->is_symbol == 2){
+			printf("lrwx %d %d \033[1;31m%s->%s\033[0m\n", child->link_count, child->size, child->name, child->nom_origin);
+        }
+        //Lien symbolique vivant
+        else if (child->is_symbol == 1){
+			printf("lrwx %d %d \033[1;36m%s->%s\033[0m\n", child->link_count, child->size, child->name, child->nom_origin);
+		}
+		//Dossier
+		else if (child->is_directory){
+			printf("d%c%c%c %d %d \033[1;34m%s\033[0m\n", 
+				(child->perms & 4) ? 'r' : '-',
+                (child->perms & 2) ? 'w' : '-',
+                (child->perms & 1) ? 'x' : '-',
+                child->link_count, child->size, child->name);
+		}
+		//Fichier
+		else {
+			printf("-%c%c%c %d %d \033[1;32m%s\033[0m\n",
+				(child->perms & 4) ? 'r' : '-',
+                (child->perms & 2) ? 'w' : '-',
+                (child->perms & 1) ? 'x' : '-',
+                child->link_count, child->size, child->name);
+		}
+        child = child->next;
+    }
+}
+
+/*void fs_ls_l(const char *arg) {
     FileEntry *cible = NULL;
     if (arg == NULL)
         cible = fs.current;
@@ -448,32 +660,91 @@ void fs_ls_l(const char *arg) {
                child->name, child->is_directory ? "/" : "");
         child = child->next;
     }
+}*/
+
+/**
+ * @brief Liste le contenu d'un repertoire avec les inodes.
+ *
+ * Si aucun argument n'est fourni, le repertoire courant est liste.
+ * Sinon, le chemin donne est resolu et son contenu est affiche.
+ *
+ * @param arg Chemin optionnel du repertoire a lister.
+ */
+void fs_ls_i(const char *arg) {
+    FileEntry *cible = NULL;
+    if (arg == NULL) {
+        cible = fs.current;
+    } else {
+        cible = resolve_path(arg, NULL);
+        if (!cible) {
+            printf("Repertoire introuvable : %s\n", arg);
+            return;
+        }
+        if (!cible->is_directory) {
+            printf("%d %s\n", cible->inode, cible->name);
+            return;
+        }
+    }
+    FileEntry *child = cible->child;
+    while (child) {
+		if (child->is_symbol == 1){
+			printf("%d \033[1;36m%s\033[0m  ", child->inode, child->name);
+		}
+		else if (child->is_symbol == 2){
+			printf("%d \033[1;31m%s\033[0m  ", child->inode, child->name);
+		}
+		else if (child->is_directory){
+			printf("%d \033[1;34m%s\033[0m  ", child->inode, child->name);
+		}
+		else{
+			printf("%d \033[1;32m%s\033[0m  ", child->inode, child->name);
+		}
+        child = child->next;
+    }
+    printf("\n");
 }
 
 void fs_cat(const char *filename) {
+	FileEntry* copie = fs.current;
     FileEntry *file = resolve_path(filename, NULL);
+    //Inexistant ou répertoire = dehors
     if (!file || file->is_directory) {
         printf("Fichier introuvable ou ce n'est pas un fichier.\n");
         return;
     }
-    if (file->is_symbol == 1) {
-        if (file->origin != NULL && file->origin->content != NULL)
-            printf("%s\n", file->origin->content);
-        else
-            printf("Le fichier original n'existe plus.\n");
-        return;
+    //Lien symbolique
+    if (file->is_symbol) {
+		fs.current = file->origin->parent; //Sert à vérifier que le fichier d'origine existe
+		//Lien mort
+        if (resolve_path(file->origin->name, NULL) == NULL){
+			printf("Le fichier d'origine n'existe plus.\n");
+			file->is_symbol = 2;
+			fs.current = copie;
+			return;
+		}
+		//Lien vivant
+		else{
+			if (file->origin->content){
+				printf("%s\n", file->origin->content);
+			}
+			file->is_symbol = 1;
+			fs.current = copie;
+			return;
+		}
     }
-    if (file->content)
-        printf("%s\n", file->content);
-    else
-        printf("\n");
+    //Fichier
+    else{
+		if (file->content){
+			printf("%s\n", file->content);
+		}
+	}
 }
 
 /* 
  * Modification de fs_create : création d'un fichier avec taille par defaut, 
  * sans besoin de fournir la taille par l'utilisateur.
  */
-void fs_create(const char *filename) {
+void fs_touch(const char *filename) {
     if (find_entry(fs.current, filename)) {
         printf("Le fichier existe deja.\n");
         return;
@@ -499,7 +770,30 @@ void fs_create(const char *filename) {
  * Elle ouvre le fichier en ecriture, écrit le texte et ferme le fichier automatiquement.
  */
 void fs_write_cmd(const char *filename, const char *texte) {
-    int fd = fs_open(filename, 2);
+	FileEntry* copie = fs.current;
+	FileEntry* file = resolve_path(filename, NULL);
+	int fd;
+	//Lien symbolique
+	if(file->is_symbol){
+		fs.current = file->origin->parent; //On se déplace dans le dossier du fichier d'origine sinon ça ne marche pas
+		//Lien mort
+		if (resolve_path(file->origin->name, NULL) == NULL){
+			printf("Le fichier d'origine n'existe plus.\n");
+			file->is_symbol = 2;
+			fs.current = copie;
+			return;
+		}
+		//Lien vivant
+		else{
+			fd = fs_open(file->origin->name, 2);
+			file->is_symbol = 1;
+		}
+	}
+	//Pas un lien symbolique
+	else{
+		fd = fs_open(filename, 2);
+	}
+	//Traitement
     if (fd < 0) {
         printf("Ecriture impossible, fichier introuvable ou permissions insuffisantes.\n");
         return;
@@ -508,6 +802,7 @@ void fs_write_cmd(const char *filename, const char *texte) {
     if (written >= 0)
         printf("Ecriture de %d octets dans '%s'.\n", written, filename);
     fs_close(fd);
+    fs.current = copie;
 }
 
 /*
@@ -521,11 +816,24 @@ void fs_chmod(const char *perm_str, const char *path) {
         printf("Entree introuvable : %s\n", path);
         return;
     }
-    entry->perms = perm;
-    printf("Les permissions de '%s' sont definies a %d.\n", entry->name, perm);
+    //Lien symbolique = dehors
+    if(entry->is_symbol == 1|| entry->is_symbol == 2){ //Pas d'espace entre le 1 et la barre, sinon ça compile pas
+		printf("Interdiction de modifier les droits d'un lien symbolique\n");
+	}
+	//Fichier
+	else{
+		//Permission entre 0 et 7 = impossible de mettre 777777777
+		if(perm > -1 && perm < 8){
+			entry->perms = perm;
+			printf("Les permissions de '%s' sont definies a %d.\n", entry->name, perm);
+		}
+		else{
+			printf("%d n'est pas compris entre 0 et 7.\n", perm);
+		}
+	}
 }
 
-void fs_link(const char *src, const char *dest) {
+void fs_ln(const char *src, const char *dest) {
     FileEntry *file = resolve_path(src, NULL);
     if (!file || file->is_directory) {
         printf("Fichier source introuvable ou ce n'est pas un fichier.\n");
@@ -552,7 +860,7 @@ void fs_link(const char *src, const char *dest) {
     printf("Lien physique '%s' cree pour '%s'.\n", dest, src);
 }
 
-void fs_ln(const char *src, const char *dest) {
+void fs_ln_s(const char *src, const char *dest) {
     FileEntry *file = resolve_path(src, NULL);
     if (!file) {
         printf("Source introuvable.\n");
@@ -566,12 +874,13 @@ void fs_ln(const char *src, const char *dest) {
     nouveau_lien->inode = next_inode++;
     nouveau_lien->is_symbol = 1;
     nouveau_lien->origin = file;
+    nouveau_lien->nom_origin = build_path(nouveau_lien->origin);
     nouveau_lien->name = strdup(dest);
     nouveau_lien->is_directory = file->is_directory;
     nouveau_lien->size = file->size;
     nouveau_lien->content = NULL;
     nouveau_lien->link_count = 1;
-    nouveau_lien->perms = file->perms;
+    nouveau_lien->perms = 7;
     nouveau_lien->child = NULL;
     nouveau_lien->next = NULL;
     nouveau_lien->parent = fs.current;
@@ -579,7 +888,7 @@ void fs_ln(const char *src, const char *dest) {
     printf("Lien symbolique '%s' cree pour '%s'.\n", dest, src);
 }
 
-void fs_unlink(const char *filename) {
+/*void fs_unlink(const char *filename) {
     FileEntry *file = resolve_path(filename, NULL);
     if (!file || file->is_directory) {
         printf("Fichier introuvable ou ce n'est pas un fichier.\n");
@@ -605,7 +914,7 @@ void fs_unlink(const char *filename) {
         }
         courant = &(*courant)->next;
     }
-}
+}*/
 
 void fs_rm(const char *path) {
     FileEntry *parent = NULL;
@@ -719,13 +1028,13 @@ int main() {
         else if (strcmp(token, "mkfs") == 0) {
             mkfs();
         }
-        else if (strcmp(token, "create") == 0) {
+        else if (strcmp(token, "touch") == 0) {
             char *fichier = strtok(NULL, " ");
             if (!fichier) {
-                printf("Usage : create <fichier>\n");
+                printf("Usage : touch <fichier>\n");
                 continue;
             }
-            fs_create(fichier);
+            fs_touch(fichier);
         }
         else if (strcmp(token, "write") == 0) {
             char *fichier = strtok(NULL, " ");
@@ -780,7 +1089,12 @@ int main() {
             if (arg && strcmp(arg, "-l") == 0) {
                 char *opt = strtok(NULL, " ");
                 fs_ls_l(opt);
-            } else {
+            } 
+            else if (arg && strcmp(arg, "-i") == 0){
+				char *opt = strtok(NULL, " ");
+                fs_ls_i(opt);
+            } 
+            else {
                 fs_ls(arg);
             }
         }
@@ -801,32 +1115,40 @@ int main() {
             }
             fs_chmod(perm_str, cheminArg);
         }
-        else if (strcmp(token, "link") == 0) {
-            char *src = strtok(NULL, " ");
-            char *dest = strtok(NULL, " ");
-            if (!src || !dest) {
-                printf("Usage : link <source> <destination>\n");
-                continue;
-            }
-            fs_link(src, dest);
-        }
         else if (strcmp(token, "ln") == 0) {
-            char *src = strtok(NULL, " ");
+			int symbolique = 0;
+			char *arg = strtok(NULL, " ");
+			//Cas du lien symbolique
+            if (arg && strcmp(arg, "-s") == 0) {
+                symbolique = 1;
+            }
+            char *src;
+            if(symbolique == 0){
+				src = arg;
+			}
+			else{
+				src = strtok(NULL, " ");
+			}
             char *dest = strtok(NULL, " ");
             if (!src || !dest) {
-                printf("Usage : ln <source> <destination>\n");
+                printf("Usage : ln [-s] <source> <destination>\n");
                 continue;
             }
-            fs_ln(src, dest);
+            if(symbolique == 1){
+				fs_ln_s(src, dest);
+			}
+			else{
+				fs_ln(src, dest);
+			}
         }
-        else if (strcmp(token, "unlink") == 0) {
+        /*else if (strcmp(token, "unlink") == 0) {
             char *fichier = strtok(NULL, " ");
             if (!fichier) {
                 printf("Usage : unlink <fichier>\n");
                 continue;
             }
             fs_unlink(fichier);
-        }
+        }*/
         else if (strcmp(token, "rm") == 0) {
             char *cheminArg = strtok(NULL, " ");
             if (!cheminArg) {
@@ -850,35 +1172,38 @@ int main() {
         else if (strcmp(token, "tree") == 0) {
             int show_inodes = 0;
             char *arg = strtok(NULL, " ");
-            if (arg && strcmp(arg, "--inodes") == 0) {
+            if (arg && strcmp(arg, "-i") == 0) {
                 show_inodes = 1;
                 arg = strtok(NULL, " ");
             }
             FileEntry *start = (arg) ? resolve_path(arg, NULL) : fs.current;
             if (!start) {
                 printf("Chemin introuvable pour tree : %s\n", arg);
-            } else {
-                print_tree(start, 0, show_inodes);
+            } else if (show_inodes == 0){
+                fs_tree(arg, 0);
             }
+            else {
+				fs_tree_i(arg, 0);
+			}
         }
         else if (strcmp(token, "help") == 0) {
             printf("Commandes disponibles :\n");
             printf("  cat <fichier>             : Affiche le contenu d'un fichier\n");
             printf("  cd <repertoire>           : Change le repertoire courant\n");
-            printf("  chmod <perm> <chemin>      : Modifie les permissions\n");
-            printf("  create <fichier>          : Cree un fichier avec taille par defaut\n");
+            printf("  chmod <perm> <chemin>     : Modifie les permissions\n");
+            printf("  touch <fichier>           : Cree un fichier avec taille par defaut\n");
             printf("  exit                      : Quitte le programme\n");
             printf("  fsck                      : Affiche des statistiques\n");
             printf("  help                      : Affiche ce message\n");
-            printf("  link <src> <dest>         : Cree un lien physique\n");
-            printf("  ln <src> <dest>           : Cree un lien symbolique\n");
+            printf("  ln <src> <dest>           : Cree un lien physique\n");
+            printf("  ln -s <src> <dest>        : Cree un lien symbolique\n");
             printf("  ls [<chemin> | -l [<chemin>]] : Liste le contenu\n");
             printf("  mkdir <repertoire>        : Cree un repertoire\n");
             printf("  mkfs                      : Formate le systeme\n");
             printf("  mv <source> <dest>        : Deplace ou renomme\n");
             printf("  pwd                       : Affiche le chemin courant\n");
             printf("  tree [--inodes] [<chemin>] : Affiche l'arborescence\n");
-            printf("  unlink <fichier>          : Supprime un lien\n");
+            //printf("  unlink <fichier>          : Supprime un lien\n");
             printf("  write <fichier> <texte>   : Ecrit dans un fichier\n");
         }
         else {
