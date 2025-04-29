@@ -121,8 +121,8 @@ Une fois le programme lancé, utilisez les commandes suivantes pour interagir :
 
 ## 🏷️ Auteur
 
-Développé par **[Ton Nom]**.  
-Licence : [Nom de la licence].
+Développé par **Hebc**, **agent1999** et **Sabrina**.  
+Licence : CY Paris Université.
 
 ---
 
@@ -136,4 +136,4 @@ Licence : [Nom de la licence].
 
 ## 📄 Licence
 
-Ce projet est sous la licence [Nom de la licence] – voir le fichier `LICENSE` pour plus de détails.
+Ce projet est sous la licence GPL-3.0 license – voir le fichier `LICENSE` pour plus de détails.
