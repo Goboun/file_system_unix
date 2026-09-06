@@ -1,17 +1,17 @@
 
-# 📂 Projet C – Système de Fichiers Simulé
+# Projet C – Système de Fichiers Simulé
 
 Ce projet est une simulation simple d’un système de fichiers, codé en langage C. Il permet d'exécuter des commandes système courantes comme `cat`, `cd`, `chmod`, etc., via un programme en ligne de commande. Il utilise un **Makefile** pour simplifier la compilation, l'exécution et le nettoyage des fichiers intermédiaires générés durant le processus de développement.
 
 ---
 
-## 🧩 Introduction
+## Introduction
 
 L'objectif de ce projet est de créer un programme interactif qui imite certaines des fonctionnalités d'un système de fichiers Unix. Il inclut des commandes qui permettent à l'utilisateur de manipuler des fichiers et des répertoires, de changer les permissions, de visualiser des statistiques, et plus encore.
 
 ---
 
-## ⚙️ Compilation et Exécution
+## Compilation et Exécution
 
 ### Prérequis
 
@@ -63,7 +63,7 @@ Avant de commencer, assurez-vous que les outils suivants sont installés sur vot
 
 ---
 
-## 🧾 Contenu du Makefile
+## Contenu du Makefile
 
 Voici le contenu du `Makefile` utilisé pour ce projet :
 
@@ -92,7 +92,7 @@ clear :
 
 ---
 
-## 🧮 Commandes disponibles dans l'interface utilisateur
+## Commandes disponibles dans l'interface utilisateur
 
 Une fois le programme lancé, utilisez les commandes suivantes pour interagir :
 
@@ -115,18 +115,18 @@ Une fois le programme lancé, utilisez les commandes suivantes pour interagir :
 | `tree [--inodes] [<chemin>]`              | Affiche l’arborescence du système (`--inodes` option)|
 | `write <fichier> <texte>`                 | Écrit du texte dans un fichier                       |
 
-> 💡 **Astuce :** Tapez `help` à tout moment pour afficher cette liste.
+> **Astuce :** Tapez `help` à tout moment pour afficher cette liste.
 
 ---
 
-## 🏷️ Auteur
+## Auteur
 
 Développé par **Hebc**, **agent1999** et **Sabrina**.  
 Licence : CY Paris Université.
 
 ---
 
-## 🚀 Améliorations futures
+## Améliorations futures
 
 - Gestion avancée des permissions et des propriétaires.  
 - Support de la suppression de fichiers (`unlink`).  
